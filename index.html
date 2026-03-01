@@ -1,0 +1,591 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>반도체 대장주 비교 대시보드</title>
+    
+    <!-- 폰트: Noto Sans KR -->
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700&display=swap" rel="stylesheet">
+    
+    <!-- Tailwind CSS (CDN) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Chart.js (CDN) -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <!-- PapaParse (CSV 파싱용 라이브러리) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
+
+    <!-- 사용자 정의 스타일 및 환경 설정 -->
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['"Noto Sans KR"', 'sans-serif'],
+                    },
+                    // 차트에 사용될 동적 테마 컬러 확장
+                    colors: {
+                        theme0: '#38bdf8', // 하늘
+                        theme1: '#fb923c', // 주황
+                        theme2: '#a78bfa', // 보라
+                        theme3: '#34d399', // 에메랄드
+                        theme4: '#f472b6', // 핑크
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        /* 기본 배경 (다크/블루 그라데이션) */
+        body {
+            background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%);
+            color: #f8fafc;
+            min-height: 100vh;
+        }
+
+        /* 반투명 카드 (Glassmorphism) 및 둥근 모서리 스타일 적용 */
+        .glass-card {
+            background: rgba(255, 255, 255, 0.08);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            border-radius: 1.25rem; /* 둥근 모서리 */
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
+            transition: transform 0.2s ease-in-out;
+        }
+
+        /* 다중 선택 드롭다운 커스텀 스크롤바 */
+        #dropdown-menu::-webkit-scrollbar {
+            width: 8px;
+        }
+        #dropdown-menu::-webkit-scrollbar-track {
+            background: rgba(255,255,255,0.05);
+            border-radius: 4px;
+        }
+        #dropdown-menu::-webkit-scrollbar-thumb {
+            background: rgba(255,255,255,0.2);
+            border-radius: 4px;
+        }
+
+        /* 커스텀 체크박스 스타일 */
+        .custom-checkbox {
+            appearance: none;
+            width: 1.25rem;
+            height: 1.25rem;
+            border: 2px solid rgba(255,255,255,0.4);
+            border-radius: 0.25rem;
+            background-color: transparent;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .custom-checkbox:checked {
+            background-color: #38bdf8;
+            border-color: #38bdf8;
+        }
+        .custom-checkbox:checked::after {
+            content: '✓';
+            color: white;
+            font-size: 0.875rem;
+            font-weight: bold;
+        }
+
+        /* 로딩 오버레이 */
+        #loading-overlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(15, 23, 42, 0.9);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 100;
+            backdrop-filter: blur(5px);
+        }
+        .spinner {
+            border: 4px solid rgba(255, 255, 255, 0.1);
+            border-left-color: #38bdf8;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
+</head>
+<body class="p-4 md:p-8 flex flex-col items-center">
+
+    <!-- 로딩 화면 -->
+    <div id="loading-overlay">
+        <div class="spinner mb-4"></div>
+        <h2 class="text-xl font-bold">주식 데이터를 불러오는 중입니다...</h2>
+        <p class="text-gray-400 mt-2">구글 시트에서 CSV를 파싱하고 있습니다.</p>
+    </div>
+
+    <div class="max-w-7xl w-full">
+        <!-- 헤더 영역 -->
+        <header class="mb-8 flex flex-col md:flex-row justify-between items-center gap-6">
+            <div class="text-center md:text-left">
+                <h1 class="text-3xl font-bold tracking-tight text-white mb-2">반도체 대장주 비교 대시보드</h1>
+                <p class="text-gray-400">데이터 기반 종목 주가 및 수익률 다중 비교</p>
+            </div>
+            
+            <!-- 다중 선택 드롭다운 (커스텀) -->
+            <div class="relative w-full md:w-80">
+                <button id="dropdown-btn" class="glass-card w-full p-4 flex justify-between items-center text-left focus:outline-none focus:ring-2 focus:ring-sky-400">
+                    <span id="dropdown-text" class="truncate font-medium">종목을 선택하세요</span>
+                    <svg class="w-5 h-5 text-gray-300 transform transition-transform" id="dropdown-arrow" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+                </button>
+                
+                <!-- 드롭다운 메뉴 (체크박스 리스트) -->
+                <div id="dropdown-menu" class="hidden absolute top-full left-0 mt-2 w-full glass-card p-2 z-50 max-h-64 overflow-y-auto">
+                    <div id="checkbox-container" class="flex flex-col gap-1">
+                        <!-- JS로 체크박스들이 추가됨 -->
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <!-- 동적 요약 카드 영역 -->
+        <!-- 선택된 종목 수에 따라 카드가 동적으로 생성되어 여기에 배치됩니다. -->
+        <div id="cards-container" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
+            <!-- 자바스크립트로 채워짐 -->
+        </div>
+
+        <!-- 안내 메시지 (종목 미선택 시) -->
+        <div id="empty-state" class="hidden glass-card p-12 text-center mb-8">
+            <h3 class="text-xl text-gray-400 font-medium">비교할 종목을 드롭다운에서 선택해 주세요.</h3>
+        </div>
+
+        <div id="dashboard-content">
+            <!-- 차트 영역 -->
+            <div class="glass-card p-6 mb-8 w-full">
+                <h3 class="text-lg font-bold mb-4">주가 추이 비교 (종가 기준)</h3>
+                <div class="relative h-[400px] w-full">
+                    <canvas id="comparisonChart"></canvas>
+                </div>
+            </div>
+
+            <!-- 수익률 비교 테이블 영역 -->
+            <div class="glass-card p-6 mb-8 overflow-x-auto">
+                <h3 class="text-lg font-bold mb-4">기간별 수익률 비교</h3>
+                <table class="w-full text-left border-collapse">
+                    <thead>
+                        <tr class="border-b border-gray-600 text-gray-300">
+                            <th class="p-3">종목명</th>
+                            <th class="p-3">최근 1개월</th>
+                            <th class="p-3">최근 3개월</th>
+                            <th class="p-3">최근 6개월</th>
+                        </tr>
+                    </thead>
+                    <tbody id="returns-tbody">
+                        <!-- 자바스크립트로 내용 채워짐 -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- 푸터 (지정하신 문구 반영) -->
+        <footer class="text-center text-gray-500 text-sm mt-12 mb-4">
+            © 2026 [더성장연구소]. All Rights Reserved.
+        </footer>
+    </div>
+
+    <script>
+        // 1. 데이터 소스 및 팔레트 설정
+        const DATA_SOURCES = {
+            "삼성전자": "https://docs.google.com/spreadsheets/d/e/2PACX-1vRg8uHk5vp0MTPCb9TwpB67lbNIMLCEjG1hqfP_QDR-KlhDaPmUSpvOt9NQpN0h9Y0pcNNtaszOfUEJ/pub?gid=0&single=true&output=csv",
+            "SK하이닉스": "https://docs.google.com/spreadsheets/d/e/2PACX-1vRg8uHk5vp0MTPCb9TwpB67lbNIMLCEjG1hqfP_QDR-KlhDaPmUSpvOt9NQpN0h9Y0pcNNtaszOfUEJ/pub?gid=1294955414&single=true&output=csv",
+            "KODEX 200": "https://docs.google.com/spreadsheets/d/e/2PACX-1vRg8uHk5vp0MTPCb9TwpB67lbNIMLCEjG1hqfP_QDR-KlhDaPmUSpvOt9NQpN0h9Y0pcNNtaszOfUEJ/pub?gid=638171675&single=true&output=csv",
+            "TIGER 반도체TOP10": "https://docs.google.com/spreadsheets/d/e/2PACX-1vRg8uHk5vp0MTPCb9TwpB67lbNIMLCEjG1hqfP_QDR-KlhDaPmUSpvOt9NQpN0h9Y0pcNNtaszOfUEJ/pub?gid=401520279&single=true&output=csv",
+            "현대차": "https://docs.google.com/spreadsheets/d/e/2PACX-1vRg8uHk5vp0MTPCb9TwpB67lbNIMLCEjG1hqfP_QDR-KlhDaPmUSpvOt9NQpN0h9Y0pcNNtaszOfUEJ/pub?gid=1103445765&single=true&output=csv"
+        };
+
+        // 다중 선택 시 차트에 부여될 색상 배열 (Tailwind 설정과 매칭)
+        const CHART_COLORS = [
+            '#38bdf8', // 하늘
+            '#fb923c', // 주황
+            '#a78bfa', // 보라
+            '#34d399', // 에메랄드
+            '#f472b6'  // 핑크
+        ];
+
+        let stockData = {};
+        let myChart = null;
+        let selectedStocks = []; // 현재 선택된 종목 이름 배열
+
+        // 2. 초기화 함수 (데이터 로딩 및 UI 세팅)
+        async function initialize() {
+            const stockNames = Object.keys(DATA_SOURCES);
+            
+            // 데이터 비동기 로딩
+            const fetchPromises = stockNames.map(async (name) => {
+                try {
+                    const response = await fetch(DATA_SOURCES[name]);
+                    const csvText = await response.text();
+                    
+                    const parsed = Papa.parse(csvText, {
+                        header: true, skipEmptyLines: true, dynamicTyping: false
+                    });
+
+                    let processedData = [];
+                    parsed.data.forEach(row => {
+                        const rawDate = row['Date'] || row['날짜'];
+                        const rawClose = row['Close'] || row['종가'];
+
+                        if (rawDate && rawClose) {
+                            const closePrice = parseFloat(String(rawClose).replace(/,/g, ''));
+                            
+                            // 날짜 파싱 (안전한 정규식 추출)
+                            let parsedDate = new Date(rawDate);
+                            if (isNaN(parsedDate.getTime())) {
+                                const match = String(rawDate).match(/(\d{4})[^\d]+(\d{1,2})[^\d]+(\d{1,2})/);
+                                if (match) {
+                                    parsedDate = new Date(parseInt(match[1]), parseInt(match[2]) - 1, parseInt(match[3]));
+                                }
+                            }
+
+                            if (!isNaN(closePrice) && !isNaN(parsedDate.getTime())) {
+                                const y = parsedDate.getFullYear();
+                                const m = String(parsedDate.getMonth() + 1).padStart(2, '0');
+                                const d = String(parsedDate.getDate()).padStart(2, '0');
+                                processedData.push({
+                                    date: parsedDate,
+                                    dateStr: `${y}-${m}-${d}`,
+                                    close: closePrice
+                                });
+                            }
+                        }
+                    });
+
+                    processedData.sort((a, b) => a.date - b.date);
+                    stockData[name] = processedData;
+
+                } catch (error) {
+                    console.error(`[${name}] 데이터 로드 실패:`, error);
+                }
+            });
+
+            await Promise.all(fetchPromises);
+            
+            // 기본 선택값 설정 (처음 2개 종목)
+            selectedStocks = [stockNames[0], stockNames[1]];
+            
+            // 커스텀 드롭다운 UI 생성
+            buildDropdownUI(stockNames);
+            
+            // 로딩 종료 및 대시보드 렌더링
+            document.getElementById('loading-overlay').style.display = 'none';
+            updateDashboard();
+        }
+
+        // 3. 커스텀 드롭다운 UI 로직
+        function buildDropdownUI(stockNames) {
+            const container = document.getElementById('checkbox-container');
+            const btn = document.getElementById('dropdown-btn');
+            const menu = document.getElementById('dropdown-menu');
+            const arrow = document.getElementById('dropdown-arrow');
+
+            // 체크박스 렌더링
+            stockNames.forEach((name, index) => {
+                const isChecked = selectedStocks.includes(name);
+                const color = CHART_COLORS[index % CHART_COLORS.length];
+                
+                const label = document.createElement('label');
+                label.className = 'flex items-center gap-3 p-3 rounded-lg hover:bg-white/5 cursor-pointer transition-colors';
+                label.innerHTML = `
+                    <input type="checkbox" value="${name}" class="custom-checkbox stock-checkbox" ${isChecked ? 'checked' : ''}>
+                    <div class="w-3 h-3 rounded-full" style="background-color: ${color};"></div>
+                    <span class="text-white select-none">${name}</span>
+                `;
+                container.appendChild(label);
+            });
+
+            // 드롭다운 열기/닫기 토글
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const isHidden = menu.classList.contains('hidden');
+                menu.classList.toggle('hidden');
+                arrow.style.transform = isHidden ? 'rotate(180deg)' : 'rotate(0deg)';
+            });
+
+            // 외부 클릭 시 닫기
+            document.addEventListener('click', (e) => {
+                if (!menu.contains(e.target) && !btn.contains(e.target)) {
+                    menu.classList.add('hidden');
+                    arrow.style.transform = 'rotate(0deg)';
+                }
+            });
+
+            // 체크박스 이벤트 리스너 추가 (변경 시 자동 갱신)
+            const checkboxes = document.querySelectorAll('.stock-checkbox');
+            checkboxes.forEach(cb => {
+                cb.addEventListener('change', () => {
+                    // 체크된 항목들 모으기
+                    selectedStocks = Array.from(document.querySelectorAll('.stock-checkbox:checked')).map(el => el.value);
+                    updateDropdownText();
+                    updateDashboard();
+                });
+            });
+
+            updateDropdownText();
+        }
+
+        // 드롭다운 버튼 텍스트 업데이트 ("삼성전자, 현대차" 등)
+        function updateDropdownText() {
+            const textEl = document.getElementById('dropdown-text');
+            if (selectedStocks.length === 0) {
+                textEl.textContent = "종목을 선택하세요";
+                textEl.className = "truncate text-gray-400";
+            } else if (selectedStocks.length <= 2) {
+                textEl.textContent = selectedStocks.join(', ');
+                textEl.className = "truncate font-medium text-white";
+            } else {
+                textEl.textContent = `${selectedStocks[0]} 외 ${selectedStocks.length - 1}개 종목`;
+                textEl.className = "truncate font-medium text-white";
+            }
+        }
+
+        // 4. 유틸리티 함수들
+        function formatNumber(num) {
+            return num.toLocaleString('ko-KR') + '원';
+        }
+
+        function formatReturn(percent) {
+            if (percent === null) return '-';
+            const value = percent.toFixed(2);
+            if (percent > 0) return `<span class="text-red-400 font-medium">+${value}%</span>`;
+            if (percent < 0) return `<span class="text-blue-400 font-medium">${value}%</span>`;
+            return `<span class="text-gray-400">${value}%</span>`;
+        }
+
+        // 5. 대시보드 메인 렌더링 함수
+        function updateDashboard() {
+            const emptyState = document.getElementById('empty-state');
+            const dashboardContent = document.getElementById('dashboard-content');
+            
+            // 종목을 하나도 선택하지 않았을 때의 예외 처리
+            if (selectedStocks.length === 0) {
+                emptyState.classList.remove('hidden');
+                dashboardContent.classList.add('hidden');
+                document.getElementById('cards-container').innerHTML = '';
+                return;
+            }
+
+            emptyState.classList.add('hidden');
+            dashboardContent.classList.remove('hidden');
+
+            renderCards();
+            renderChart();
+            renderTable();
+        }
+
+        // 선택된 종목만큼 카드를 동적 생성
+        function renderCards() {
+            const container = document.getElementById('cards-container');
+            container.innerHTML = ''; // 기존 카드 초기화
+
+            const stockNamesList = Object.keys(DATA_SOURCES); // 색상 매칭을 위한 전체 리스트 기준 인덱스
+
+            selectedStocks.forEach(name => {
+                const data = stockData[name];
+                if (!data || data.length === 0) return;
+
+                const globalIndex = stockNamesList.indexOf(name);
+                const color = CHART_COLORS[globalIndex % CHART_COLORS.length];
+
+                const currentPrice = data[data.length - 1].close;
+                const highPrice = Math.max(...data.map(d => d.close));
+                const lowPrice = Math.min(...data.map(d => d.close));
+
+                // 카드 HTML 조립
+                const cardHTML = `
+                    <div class="glass-card p-6 border-t-4 transition-all hover:-translate-y-1" style="border-top-color: ${color};">
+                        <div class="flex items-center gap-2 mb-4">
+                            <div class="w-3 h-3 rounded-full shadow-[0_0_8px_${color}]" style="background-color: ${color};"></div>
+                            <h2 class="text-xl font-bold" style="color: ${color};">${name}</h2>
+                        </div>
+                        <div class="grid grid-cols-3 gap-2 text-center">
+                            <div>
+                                <p class="text-[11px] md:text-xs text-gray-400 mb-1">현재가</p>
+                                <p class="text-base md:text-lg font-bold">${formatNumber(currentPrice)}</p>
+                            </div>
+                            <div>
+                                <p class="text-[11px] md:text-xs text-gray-400 mb-1">최고가 (전체)</p>
+                                <p class="text-base md:text-lg font-bold text-red-400">${formatNumber(highPrice)}</p>
+                            </div>
+                            <div>
+                                <p class="text-[11px] md:text-xs text-gray-400 mb-1">최저가 (전체)</p>
+                                <p class="text-base md:text-lg font-bold text-blue-400">${formatNumber(lowPrice)}</p>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                container.innerHTML += cardHTML;
+            });
+        }
+
+        // 다중 데이터 차트 렌더링
+        function renderChart() {
+            const stockNamesList = Object.keys(DATA_SOURCES);
+
+            // 1. 모든 선택된 종목의 날짜 합집합 생성 (X축 기준)
+            const datesSet = new Set();
+            selectedStocks.forEach(name => {
+                stockData[name].forEach(d => datesSet.add(d.dateStr));
+            });
+            const sortedDates = Array.from(datesSet).sort((a, b) => new Date(a) - new Date(b));
+
+            // 2. 각 종목별 데이터셋(Dataset) 구성
+            const datasets = selectedStocks.map(name => {
+                const dataArray = stockData[name];
+                const globalIndex = stockNamesList.indexOf(name);
+                const color = CHART_COLORS[globalIndex % CHART_COLORS.length];
+
+                // 날짜별 매핑
+                const dataMap = {};
+                dataArray.forEach(d => { dataMap[d.dateStr] = d.close; });
+                const chartData = sortedDates.map(date => dataMap[date] || null);
+
+                // hex 색상에 투명도(opacity)를 주기 위한 변환 처리 (간이)
+                // Tailwind color hex -> rgba
+                const hexToRgba = (hex, alpha) => {
+                    let r = parseInt(hex.slice(1, 3), 16),
+                        g = parseInt(hex.slice(3, 5), 16),
+                        b = parseInt(hex.slice(5, 7), 16);
+                    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+                };
+
+                return {
+                    label: name,
+                    data: chartData,
+                    borderColor: color,
+                    backgroundColor: hexToRgba(color, 0.1),
+                    borderWidth: 2,
+                    pointRadius: 0,
+                    pointHoverRadius: 6,
+                    tension: 0.1,
+                    spanGaps: true
+                };
+            });
+
+            // 3. 차트 그리기
+            const ctx = document.getElementById('comparisonChart').getContext('2d');
+            if (myChart) myChart.destroy();
+
+            Chart.defaults.color = 'rgba(255, 255, 255, 0.7)';
+            Chart.defaults.font.family = '"Noto Sans KR", sans-serif';
+
+            myChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: sortedDates,
+                    datasets: datasets
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: {
+                        mode: 'index',
+                        intersect: false,
+                    },
+                    plugins: {
+                        legend: {
+                            position: 'top',
+                            labels: {
+                                color: 'white',
+                                usePointStyle: true,
+                                padding: 20
+                            }
+                        },
+                        tooltip: {
+                            backgroundColor: 'rgba(15, 23, 42, 0.9)',
+                            titleColor: 'white',
+                            bodyColor: 'white',
+                            borderColor: 'rgba(255,255,255,0.2)',
+                            borderWidth: 1,
+                            callbacks: {
+                                label: function(context) {
+                                    let label = context.dataset.label || '';
+                                    if (label) { label += ': '; }
+                                    if (context.parsed.y !== null) {
+                                        label += new Intl.NumberFormat('ko-KR').format(context.parsed.y) + '원';
+                                    }
+                                    return label;
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                            ticks: { maxTicksLimit: 10 }
+                        },
+                        y: {
+                            grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                        }
+                    }
+                }
+            });
+        }
+
+        // 다중 종목 수익률 테이블 렌더링
+        function renderTable() {
+            const tbody = document.getElementById('returns-tbody');
+            tbody.innerHTML = ''; 
+            const stockNamesList = Object.keys(DATA_SOURCES);
+
+            selectedStocks.forEach(name => {
+                const data = stockData[name];
+                if (!data || data.length === 0) return;
+
+                const globalIndex = stockNamesList.indexOf(name);
+                const color = CHART_COLORS[globalIndex % CHART_COLORS.length];
+                
+                const latestPrice = data[data.length - 1].close;
+                const latestDate = data[data.length - 1].date;
+
+                const getPastPrice = (months) => {
+                    const targetDate = new Date(latestDate);
+                    targetDate.setMonth(targetDate.getMonth() - months);
+                    for (let i = data.length - 1; i >= 0; i--) {
+                        if (data[i].date <= targetDate) return data[i].close;
+                    }
+                    return null; 
+                };
+
+                const calcReturn = (pastPrice) => {
+                    if (!pastPrice) return null;
+                    return ((latestPrice - pastPrice) / pastPrice) * 100;
+                };
+
+                const ret1m = calcReturn(getPastPrice(1));
+                const ret3m = calcReturn(getPastPrice(3));
+                const ret6m = calcReturn(getPastPrice(6));
+
+                const rowHTML = `
+                    <tr class="border-b border-gray-700/50 hover:bg-white/5 transition-colors">
+                        <td class="p-3 font-medium flex items-center gap-2">
+                            <div class="w-2 h-2 rounded-full" style="background-color: ${color};"></div>
+                            ${name}
+                        </td>
+                        <td class="p-3">${formatReturn(ret1m)}</td>
+                        <td class="p-3">${formatReturn(ret3m)}</td>
+                        <td class="p-3">${formatReturn(ret6m)}</td>
+                    </tr>
+                `;
+                tbody.innerHTML += rowHTML;
+            });
+        }
+
+        // DOM이 모두 로드되면 초기화 실행
+        window.addEventListener('DOMContentLoaded', initialize);
+
+    </script>
+</body>
+</html>
